@@ -55,7 +55,8 @@ async def recap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"🎬 '{movie_name}' အတွက် Recap ဖန်တီးပေးနေပါတယ်... ခဏစောင့်ပေးပါ။")
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        
         
         prompt = (
             f"You are a movie recap expert. Write a detailed, highly engaging movie recap script in Myanmar (Burmese) language for the movie: '{movie_name}'. "
