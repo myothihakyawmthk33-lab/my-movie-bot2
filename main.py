@@ -3,7 +3,7 @@ import logging
 import asyncio
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import google.generativeai as genai
+from google import genai
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -28,24 +28,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MY_TELEGRAM_ID = os.getenv("MY_TELEGRAM_ID")
 
-genai.configure(api_key=GEMINI_API_KEY)
-
-def get_working_model():
-    """Finds the best available Gemini model automatically."""
-    try:
-        available_models = [
-            m.name for m in genai.list_models() 
-            if "generateContent" in m.supported_generation_methods
-        ]
-        # Prefer flash models, fallback to any supported model
-        for m in available_models:
-            if "flash" in m:
-                return m
-        if available_models:
-            return available_models[0]
-    except Exception as e:
-        logging.error(f"Error fetching models: {e}")
-    return "gemini-1.5-flash" # Default fallback
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
@@ -72,17 +55,19 @@ async def recap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"🎬 '{movie_name}' အတွက် Recap ဖန်တီးပေးနေပါတယ်... ခဏစောင့်ပေးပါ။")
 
     try:
-        model_name = get_working_model()
-        logging.info(f"Using model: {model_name}")
-        model = genai.GenerativeModel(model_name)
-        
         prompt = (
             f"You are a movie recap expert. Write a detailed, highly engaging movie recap script in Myanmar (Burmese) language for the movie: '{movie_name}'. "
             f"Structure it cleanly for a TikTok/YouTube video script."
         )
 
         loop = asyncio.get_running_loop()
-        response = await loop.run_in_executor(None, lambda: model.generate_content(prompt))
+        response = await loop.run_in_executor(
+            None, 
+            lambda: client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+            )
+        )
         recap_text = response.text
 
         if len(recap_text) > 4000:
