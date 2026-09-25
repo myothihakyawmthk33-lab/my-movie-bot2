@@ -30,6 +30,23 @@ MY_TELEGRAM_ID = os.getenv("MY_TELEGRAM_ID")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
+def get_working_model():
+    """Finds the best available Gemini model automatically."""
+    try:
+        available_models = [
+            m.name for m in genai.list_models() 
+            if "generateContent" in m.supported_generation_methods
+        ]
+        # Prefer flash models, fallback to any supported model
+        for m in available_models:
+            if "flash" in m:
+                return m
+        if available_models:
+            return available_models[0]
+    except Exception as e:
+        logging.error(f"Error fetching models: {e}")
+    return "gemini-1.5-flash" # Default fallback
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     if user_id != MY_TELEGRAM_ID:
@@ -55,9 +72,9 @@ async def recap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"🎬 '{movie_name}' အတွက် Recap ဖန်တီးပေးနေပါတယ်... ခဏစောင့်ပေးပါ။")
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        
-        
+        model_name = get_working_model()
+        logging.info(f"Using model: {model_name}")
+        model = genai.GenerativeModel(model_name)
         
         prompt = (
             f"You are a movie recap expert. Write a detailed, highly engaging movie recap script in Myanmar (Burmese) language for the movie: '{movie_name}'. "
