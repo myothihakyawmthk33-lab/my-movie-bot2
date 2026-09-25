@@ -1,11 +1,25 @@
 import os
 import logging
 import asyncio
+from threading import Thread
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import google.generativeai as genai
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# Logging setup
+# Dummy Web Server to satisfy Render Web Service Port check
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_health_check_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
+# Enable Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -14,7 +28,6 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MY_TELEGRAM_ID = os.getenv("MY_TELEGRAM_ID")
 
-# Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -42,7 +55,6 @@ async def recap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"🎬 '{movie_name}' အတွက် Recap ဖန်တီးပေးနေပါတယ်... ခဏစောင့်ပေးပါ။")
 
     try:
-        # Use gemini-1.5-flash
         model = genai.GenerativeModel("gemini-1.5-flash")
         
         prompt = (
@@ -50,7 +62,6 @@ async def recap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"Structure it cleanly for a TikTok/YouTube video script."
         )
 
-        # Run in executor to avoid blocking asyncio loop
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(None, lambda: model.generate_content(prompt))
         recap_text = response.text
@@ -66,6 +77,10 @@ async def recap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"တောင်းပန်ပါတယ်၊ AI မှ Recap ထုတ်ပေးရာတွင် အမှားအယွင်း ဖြစ်သွားပါသည်:\n{e}")
 
 def main() -> None:
+    # Start Web Server in background thread for Render Free Plan
+    t = Thread(target=run_health_check_server, daemon=True)
+    t.start()
+
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("recap", recap))
