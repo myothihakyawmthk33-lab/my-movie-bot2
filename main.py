@@ -1,66 +1,75 @@
 import os
 import logging
-from google import genai
+import asyncio
+import google.generativeai as genai
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-MY_TELEGRAM_ID = int(os.environ.get("MY_TELEGRAM_ID", "8777467753"))
+# Logging setup
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+MY_TELEGRAM_ID = os.getenv("MY_TELEGRAM_ID")
 
-logging.basicConfig(level=logging.INFO)
+# Configure Gemini
+genai.configure(api_key=GEMINI_API_KEY)
 
-def is_owner(update: Update) -> bool:
-    return update.effective_user.id == MY_TELEGRAM_ID
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("⛔️ တောင်းပန်ပါတယ်။ ဒီ Bot ကို ပိုင်ရှင်တစ်ယောက်တည်းသာ သုံးစွဲခွင့်ရှိပါတယ်။")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    if user_id != MY_TELEGRAM_ID:
+        await update.message.reply_text("ခွင့်ပြုချက်မရှိပါ။")
         return
-
-    msg = (
-        "🎬 **Private Movie Recap Bot မှ ကြိုဆိုပါတယ်!**\n\n"
-        "ကြည့်ချင်တဲ့ ရုပ်ရှင်နာမည်ကို `/recap [ရုပ်ရှင်နာမည်]` လို့ ရိုက်ပေးပါ။\n"
-        "ဥပမာ - `/recap Inception` သို့မဟုတ် `/recap Avatar`"
+    await update.message.reply_text(
+        "🎬 Private Movie Recap Bot မှ ကြိုဆိုပါတယ်!\n\n"
+        "ကြည့်ချင်တဲ့ ရုပ်ရှင်နာမည်ကို /recap [ရုပ်ရှင်နာမည်] လို့ ရိုက်ပေးပါ။\n"
+        "ဥပမာ - /recap Inception"
     )
-    await update.message.reply_text(msg, parse_mode='Markdown')
 
-async def recap(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_owner(update):
-        await update.message.reply_text("⛔️ တောင်းပန်ပါတယ်။ ဒီ Bot ကို ပိုင်ရှင်တစ်ယောက်တည်းသာ သုံးစွဲခွင့်ရှိပါတယ်။")
-        return
-
-    if not context.args:
-        await update.message.reply_text("ကျေးဇူးပြု၍ ရုပ်ရှင်အမည် ထည့်ပေးပါ။ ဥပမာ - `/recap Inception`", parse_mode='Markdown')
+async def recap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    if user_id != MY_TELEGRAM_ID:
+        await update.message.reply_text("ခွင့်ပြုချက်မရှိပါ။")
         return
 
     movie_name = " ".join(context.args)
-    status_message = await update.message.reply_text(f"⏳ '{movie_name}' အတွက် Recap ရေးပေးနေပါတယ်...")
+    if not movie_name:
+        await update.message.reply_text("ကျေးဇူးပြု၍ ရုပ်ရှင်နာမည် ထည့်ပေးပါ။ ဥပမာ - /recap Titanic")
+        return
+
+    await update.message.reply_text(f"🎬 '{movie_name}' အတွက် Recap ဖန်တီးပေးနေပါတယ်... ခဏစောင့်ပေးပါ။")
 
     try:
+        # Use gemini-1.5-flash
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        
         prompt = (
-            f"Please provide a clear movie recap for '{movie_name}' in Myanmar language. "
-            f"Include storyline, main themes, genre, release year, and overall review without massive ending spoilers. "
-            f"Use Markdown formatting with clean emojis."
+            f"You are a movie recap expert. Write a detailed, highly engaging movie recap script in Myanmar (Burmese) language for the movie: '{movie_name}'. "
+            f"Structure it cleanly for a TikTok/YouTube video script."
         )
 
-        response = gemini_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
+        # Run in executor to avoid blocking asyncio loop
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(None, lambda: model.generate_content(prompt))
+        recap_text = response.text
 
-        await status_message.delete()
-        await update.message.reply_text(response.text, parse_mode='Markdown')
+        if len(recap_text) > 4000:
+            for i in range(0, len(recap_text), 4000):
+                await update.message.reply_text(recap_text[i:i+4000])
+        else:
+            await update.message.reply_text(recap_text)
 
     except Exception as e:
         logging.error(f"Error: {e}")
-        await status_message.edit_text("တောင်းပန်ပါတယ်၊ AI မှ Recap ထုတ်ပေးရာတွင် အမှားအယွင်းတစ်ခု ဖြစ်သွားပါတယ်။")
+        await update.message.reply_text(f"တောင်းပန်ပါတယ်၊ AI မှ Recap ထုတ်ပေးရာတွင် အမှားအယွင်း ဖြစ်သွားပါသည်:\n{e}")
 
-if __name__ == '__main__':
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("recap", recap))
-    print("Private Bot is running...")
-    app.run_polling()
+def main() -> None:
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("recap", recap))
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
